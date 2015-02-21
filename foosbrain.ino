@@ -1,6 +1,10 @@
 /* 
   IR Breakbeam with Mp3
 */
+// include PinChangeInt (with optimization switches)
+#define NO_PORTC_PINCHANGES // to indicate that port c will not be used for pin change interrupts
+#define NO_PORTD_PINCHANGES // to indicate that port d will not be used for pin change interrupts
+#include <PinChangeInt.h>
 
 // include SPI, MP3 and SD libraries
 #include <SPI.h>
@@ -17,71 +21,106 @@
 #define DREQ 3       // VS1053 Data request, ideally an Interrupt pin
 // Create shield-example object!
 Adafruit_VS1053_FilePlayer musicPlayer = 
-  Adafruit_VS1053_FilePlayer(SHIELD_RESET, SHIELD_CS, SHIELD_DCS, DREQ, CARDCS);
+    Adafruit_VS1053_FilePlayer(SHIELD_RESET, SHIELD_CS, SHIELD_DCS, DREQ, CARDCS);
 
+// Pin 13: Arduino has an LED connected on pin 13
 #define LEDPIN 13
-  // Pin 13: Arduino has an LED connected on pin 13
-  // Pin 11: Teensy 2.0 has the LED on pin 11
-  // Pin  6: Teensy++ 2.0 has the LED on pin 6
-  // Pin 13: Teensy 3.0 has the LED on pin 13
 
-#define SENSORPIN 2
+// Setup goal detection
+#define BLACKGOALPIN 8
+#define YELLOWGOALPIN 9
 
-// Indicates if interrupt has been triggered
-volatile int change = 0;
-// IR Breakbeam state; LOW == broken
-volatile int sensorState = LOW;
+unsigned long blackGoalStartTime;
+//unsigned long blackGoalEndTime;
+volatile unsigned long blackGoalTime = 0;
+unsigned long yellowGoalStartTime;
+//unsigned long yellowGoalEndTime;
+volatile unsigned long yellowGoalTime = 0;
 
-void changedState() {
-  change = 1;
-  // read the state of the sensor
-  sensorState = digitalRead(SENSORPIN);
+void goalSensorChange() {
+    unsigned long *startTime;
+    //unsigned long *endTime;
+    volatile unsigned long *goalTime;
+    if (PCintPort::arduinoPin == BLACKGOALPIN) {
+        startTime = &blackGoalStartTime;
+        //endTime = &blackGoalEndTime;
+        goalTime = &blackGoalTime;
+    } else {
+        startTime = &yellowGoalStartTime;
+        //endTime = &yellowGoalEndTime;
+        goalTime = &yellowGoalTime;
+    }
+    if (PCintPort::pinState == LOW) {
+        *startTime = millis();
+    } else {
+        //*endTime = millis();
+        *goalTime = millis() - *startTime;
+    }
+/*
+    if (PCintPort::arduinoPin == BLACKGOALPIN) {
+        if (PCintPort::pinState == LOW) {
+            blackGoalStartTime = millis();
+        } else {
+            blackGoalEndTime = millis();
+            blackGoalTime = blackGoalEndTime - blackGoalStartTime;
+        }
+    } else {
+        if (PCintPort::pinState == LOW) {
+            yellowGoalStartTime = millis();
+        } else {
+            yellowGoalEndTime = millis();
+            yellowGoalTime = yellowGoalEndTime - yellowGoalStartTime;
+        }
+    }
+*/
 }
 
 void setup() {
 
-  Serial.begin(9600);
+    Serial.begin(9600);
 
-  if (! musicPlayer.begin()) { // initialise the music player
-     Serial.println(F("Couldn't find VS1053, do you have the right pins defined?"));
-     while (1);
-  }
-  Serial.println(F("VS1053 found"));
-  
-  SD.begin(CARDCS);    // initialise the SD card
-  
-  // Set volume for left, right channels. lower numbers == louder volume!
-  musicPlayer.setVolume(20,20);
+    if (! musicPlayer.begin()) { // initialise the music player
+        Serial.println(F("Couldn't find VS1053, do you have the right pins defined?"));
+        while (1);
+    }
+    Serial.println(F("VS1053 found"));
 
-  // If DREQ is on an interrupt pin (on uno, #2 or #3) we can do background
-  // audio playing
-  musicPlayer.useInterrupt(VS1053_FILEPLAYER_PIN_INT);  // DREQ int
+    musicPlayer.sineTest(0x44, 500);    // Make a tone to indicate VS1053 is working
 
-  // initialize the LED pin as an output:
-  pinMode(LEDPIN, OUTPUT);
-  // turn on the pullup
-  digitalWrite(SENSORPIN, HIGH);
-  // attach ISR to the sensor pin
-  attachInterrupt(0, changedState, CHANGE);   
+    SD.begin(CARDCS);    // initialise the SD card
+
+    // Set volume for left, right channels. lower numbers == louder volume!
+    musicPlayer.setVolume(20,20);
+
+    // If DREQ is on an interrupt pin (on uno, #2 or #3) we can do background
+    // audio playing
+    musicPlayer.useInterrupt(VS1053_FILEPLAYER_PIN_INT);  // DREQ int
+
+    // initialize the LED pin as an output:
+    pinMode(LEDPIN, OUTPUT);
+
+    // Set the goal sensors pins
+    digitalWrite(BLACKGOALPIN, INPUT_PULLUP);
+    digitalWrite(YELLOWGOALPIN, INPUT_PULLUP);
+
+    // Attach goal sensor interrupts
+    attachPinChangeInterrupt(BLACKGOALPIN, goalSensorChange, CHANGE);
+    attachPinChangeInterrupt(YELLOWGOALPIN, goalSensorChange, CHANGE);
 }
 
 void loop(){
-  if (change) {
-    change = 0;
-    // check if the sensor beam is broken
-    // if it is, the sensorState is LOW:
-    if (sensorState == LOW) {
-      // turn LED on:
-      digitalWrite(LEDPIN, HIGH);
-      if (musicPlayer.stopped()) {
-        musicPlayer.playFullFile("track002.mp3");
-      }
-      Serial.println("Broken");
-      //tone(8, 362, 25);
-    } else {
-      // turn LED off:
-      digitalWrite(LEDPIN, LOW);
-      Serial.println("Unbroken");
+    if (blackGoalTime > 0 || yellowGoalTime > 0) {
+        if (blackGoalTime) {
+            Serial.print(F("Black Goal: ")); Serial.print(blackGoalTime); Serial.println(F(" ms"));
+            blackGoalTime = 0;
+            musicPlayer.setVolume(20,254);
+            musicPlayer.startPlayingFile("track001.mp3");
+        }
+        if (yellowGoalTime) {
+            Serial.print(F("Yellow Goal: ")); Serial.print(yellowGoalTime); Serial.println(F(" ms"));
+            yellowGoalTime = 0;
+            musicPlayer.setVolume(254,20);
+            musicPlayer.startPlayingFile("track002.mp3");
+        }
     }
-  }
 }
