@@ -27,52 +27,31 @@ Adafruit_VS1053_FilePlayer musicPlayer =
 #define LEDPIN 13
 
 // Setup goal detection
-#define BLACKGOALPIN 8
-#define YELLOWGOALPIN 9
+#define GOAL_PIN_BLACK 8
+#define GOAL_PIN_YELLOW 9
+#define GOAL_MS_SLOW 20
+#define GOAL_MS_FAST 10
 
-unsigned long blackGoalStartTime;
-//unsigned long blackGoalEndTime;
-volatile unsigned long blackGoalTime = 0;
-unsigned long yellowGoalStartTime;
-//unsigned long yellowGoalEndTime;
-volatile unsigned long yellowGoalTime = 0;
+uint32_t blackGoalStartTime;
+volatile uint32_t blackGoalTime = 0;
+uint32_t yellowGoalStartTime;
+volatile uint32_t yellowGoalTime = 0;
 
 void goalSensorChange() {
-    unsigned long *startTime;
-    //unsigned long *endTime;
-    volatile unsigned long *goalTime;
-    if (PCintPort::arduinoPin == BLACKGOALPIN) {
+    uint32_t *startTime;
+    volatile uint32_t *goalTime;
+    if (PCintPort::arduinoPin == GOAL_PIN_BLACK) {
         startTime = &blackGoalStartTime;
-        //endTime = &blackGoalEndTime;
         goalTime = &blackGoalTime;
     } else {
         startTime = &yellowGoalStartTime;
-        //endTime = &yellowGoalEndTime;
         goalTime = &yellowGoalTime;
     }
     if (PCintPort::pinState == LOW) {
         *startTime = millis();
     } else {
-        //*endTime = millis();
         *goalTime = millis() - *startTime;
     }
-/*
-    if (PCintPort::arduinoPin == BLACKGOALPIN) {
-        if (PCintPort::pinState == LOW) {
-            blackGoalStartTime = millis();
-        } else {
-            blackGoalEndTime = millis();
-            blackGoalTime = blackGoalEndTime - blackGoalStartTime;
-        }
-    } else {
-        if (PCintPort::pinState == LOW) {
-            yellowGoalStartTime = millis();
-        } else {
-            yellowGoalEndTime = millis();
-            yellowGoalTime = yellowGoalEndTime - yellowGoalStartTime;
-        }
-    }
-*/
 }
 
 void setup() {
@@ -85,27 +64,27 @@ void setup() {
     }
     Serial.println(F("VS1053 found"));
 
-    musicPlayer.sineTest(0x44, 500);    // Make a tone to indicate VS1053 is working
-
     SD.begin(CARDCS);    // initialise the SD card
 
     // Set volume for left, right channels. lower numbers == louder volume!
     musicPlayer.setVolume(20,20);
 
-    // If DREQ is on an interrupt pin (on uno, #2 or #3) we can do background
-    // audio playing
+    // If DREQ is on an interrupt pin (on uno, #2 or #3) we can do background audio playing
     musicPlayer.useInterrupt(VS1053_FILEPLAYER_PIN_INT);  // DREQ int
 
     // initialize the LED pin as an output:
     pinMode(LEDPIN, OUTPUT);
 
     // Set the goal sensors pins
-    digitalWrite(BLACKGOALPIN, INPUT_PULLUP);
-    digitalWrite(YELLOWGOALPIN, INPUT_PULLUP);
+    digitalWrite(GOAL_PIN_BLACK, INPUT_PULLUP);
+    digitalWrite(GOAL_PIN_YELLOW, INPUT_PULLUP);
 
     // Attach goal sensor interrupts
-    attachPinChangeInterrupt(BLACKGOALPIN, goalSensorChange, CHANGE);
-    attachPinChangeInterrupt(YELLOWGOALPIN, goalSensorChange, CHANGE);
+    attachPinChangeInterrupt(GOAL_PIN_BLACK, goalSensorChange, CHANGE);
+    attachPinChangeInterrupt(GOAL_PIN_YELLOW, goalSensorChange, CHANGE);
+
+    // Make a tone to indicate we're ready to roll
+    musicPlayer.sineTest(0x44, 500);
 }
 
 void loop(){
