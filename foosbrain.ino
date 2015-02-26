@@ -23,8 +23,19 @@
 Adafruit_VS1053_FilePlayer musicPlayer = 
     Adafruit_VS1053_FilePlayer(SHIELD_RESET, SHIELD_CS, SHIELD_DCS, DREQ, CARDCS);
 
+// Unused analog pin for seeding random number generator
+#define UNUSED_ANALOG_PIN 0
+
 // Pin 13: Arduino has an LED connected on pin 13
 #define LEDPIN 13
+
+// File reading/writing
+#include <strings.h>
+char buf[50] = "";
+const String ROOT = "foos/";
+const String SETTINGS_FILENAME = "settings.txt";
+String fileLine;
+String themeDir;
 
 // Setup goal detection
 #define GOAL_PIN_BLACK 8
@@ -64,7 +75,8 @@ void setup() {
     }
     Serial.println(F("VS1053 found"));
 
-    SD.begin(CARDCS);    // initialise the SD card
+    // Initialize the SD card
+    initSoundFiles();
 
     // Set volume for left, right channels. lower numbers == louder volume!
     musicPlayer.setVolume(20,20);
@@ -102,4 +114,45 @@ void loop(){
             musicPlayer.startPlayingFile("track002.mp3");
         }
     }
+}
+
+void initSoundFiles() {
+    SD.begin(CARDCS);
+    ROOT.toCharArray(buf, 50);
+    if (!SD.exists(buf)) {
+        Serial.println(F("Error: foos/ dir not found on SD card"));
+    }
+    (ROOT+SETTINGS_FILENAME).toCharArray(buf, 50);
+    File settingsFile = SD.open(buf, FILE_READ);
+    if (!settingsFile.available()) {
+        Serial.println("settings.txt not available");
+    }
+    while (settingsFile.available()) {
+        fileLine = readline(settingsFile);
+        if (fileLine.startsWith("themeDir:")) {
+            themeDir = fileLine.substring(9);
+        }
+        Serial.println(fileLine);
+    }
+    settingsFile.close();
+    if (themeDir == "") {
+        Serial.println("no themeDir found");
+        settingsFile = SD.open(buf, FILE_WRITE);
+        themeDir = "Simpsons";
+        settingsFile.println("themeDir:" + themeDir);
+        settingsFile.close();
+    }
+}
+
+String readline(File file) {
+    String line = "";
+    char c;
+    while (file.available()) {
+        c = (char)file.read();
+        if (c == '\n') {
+            break;
+        }
+        line += c;
+    }
+    return line;
 }
