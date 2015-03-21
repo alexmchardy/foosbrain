@@ -30,13 +30,12 @@ Adafruit_VS1053_FilePlayer musicPlayer =
 #define LEDPIN 13
 
 // File reading/writing
-//const uint8_t BUFLEN = 60;
 const uint8_t NAMELEN = 13;
+const uint8_t FILELINELEN = 30;
 const uint8_t GOALROOTLEN = 40; // 3*12 + 3 ("/"s) + 1 ("\0")
 const uint8_t GOALPATHLEN = 53; // 4*12 + 4 ("/"s) + 1 ("\0")
 const uint8_t THEMEFILEPATHLEN = 53; // 4*12 + 4 ("/"s) + 1 ("\0")
 const uint8_t GOALFILEPATHLEN = 66; // 5*12 + 5 ("/"s) + 1 ("\0")
-//char buf[BUFLEN];
 const char ROOT[6] = "foos/";
 const char SETTINGSFILENAME[13] = "settings.txt";
 const char THEMESDIR[8] = "themes/";
@@ -53,10 +52,12 @@ char goalPath[GOALPATHLEN];
 char fastGoalPath[GOALPATHLEN];
 char slowGoalPath[GOALPATHLEN];
 char goalFilePath[GOALFILEPATHLEN];
+char fastGoalFilePath[GOALFILEPATHLEN];
+char slowGoalFilePath[GOALFILEPATHLEN];
 uint32_t goalSoundDelay = 0;
-uint16_t goalSoundIndices[10];
-uint16_t fastGoalSoundIndices[10];
-uint16_t slowGoalSoundIndices[10];
+uint16_t *goalSoundIndices = NULL;
+uint16_t *fastGoalSoundIndices = NULL;
+uint16_t *slowGoalSoundIndices = NULL;
 uint8_t goalSoundCount;
 uint8_t fastGoalSoundCount;
 uint8_t slowGoalSoundCount;
@@ -66,7 +67,6 @@ uint8_t slowGoalSoundCount;
 #define GOAL_PIN_YELLOW 9
 #define GOAL_MS_SLOW 20
 #define GOAL_MS_FAST 10
-
 uint32_t blackGoalStartTime;
 volatile uint32_t blackGoalTime = 0;
 uint32_t yellowGoalStartTime;
@@ -158,6 +158,7 @@ void getGoalSoundFile(char *goalFile, uint32_t goalTime) {
 
 void initSoundFiles() {
     SD.begin(CARDCS);
+
     strncpy(goalRoot, ROOT, GOALROOTLEN-1);
     if (!SD.exists(goalRoot)) {
         Serial.println(F("Error: foos/ dir not found on SD card"));
@@ -167,8 +168,6 @@ void initSoundFiles() {
     if (!settingsFile.available()) {
         Serial.println(F("settings.txt not found"));
     }
-    Serial.println(F("settings.txt found"));
-    const char FILELINELEN = 30;
     char fileLine[FILELINELEN];
     while (settingsFile.available()) {
         readline(fileLine, settingsFile, FILELINELEN-1);
@@ -183,59 +182,50 @@ void initSoundFiles() {
     }
     settingsFile.close();
 
-    // Build goal path and file list
+    // Build goal root
     strncpy(goalRoot, ROOT, GOALROOTLEN-1);
     strncat(goalRoot, THEMESDIR, GOALROOTLEN - strlen(goalRoot) - 1);
     strncat(goalRoot, themeDir, GOALROOTLEN - strlen(goalRoot) - 1);
 
+    // Read the theme.txt file
     readTheme(goalRoot);
 
+    // Build regular goal path
     strncpy(goalPath, goalRoot, GOALPATHLEN-1);
     strncat(goalPath, GOALDIR, GOALPATHLEN - strlen(goalPath) - 1);
-
+    if (goalSoundCount == 0 || !SD.exists(goalPath)) {
+        Serial.print(F("goal path not found: "));
+        Serial.println(goalPath);
+        return;
+    }
+    // Get a random regular goal file path
     randomSeed(analogRead(UNUSED_ANALOG_PIN));
     getSoundFilePath(goalFilePath, goalPath, goalSoundIndices[random(0, goalSoundCount-1)]);
 
+    // Build fast goal path
+    if (fastGoalSoundCount > 0) {
+        strncpy(fastGoalPath, goalRoot, GOALPATHLEN-1);
+        strncat(fastGoalPath, FASTGOALDIR, GOALPATHLEN - strlen(fastGoalPath) - 1);
+        if (fastGoalDirExists = SD.exists(fastGoalPath)) {
+            // Get a random fast goal file path
+            getSoundFilePath(fastGoalFilePath, fastGoalPath, fastGoalSoundIndices[random(0, fastGoalSoundCount-1)]);
+        }
+    }
+
+    // Build slow goal path
+    if (slowGoalSoundCount > 0) {
+        strncpy(slowGoalPath, goalRoot, GOALPATHLEN-1);
+        strncat(slowGoalPath, SLOWGOALDIR, GOALPATHLEN - strlen(slowGoalPath) - 1);
+        if (slowGoalDirExists = SD.exists(slowGoalPath)) {
+            // Get a random slow goal file path
+            getSoundFilePath(slowGoalFilePath, slowGoalPath, slowGoalSoundIndices[random(0, slowGoalSoundCount-1)]);
+        }
+    }
+
     Serial.print(F("goal sound path is: "));
-
     Serial.println(goalFilePath);
-    musicPlayer.startPlayingFile(goalFilePath);
-/*
-    Serial.print(F("goal sound is: "));
-    Serial.println(goalSounds[0]);
-    for (int j=0; j < 20; j++) {
-        Serial.print(goalSounds + j);
-    }
-    Serial.println(F("##"));
 
-    // Build fast goal path and file list
-    strncpy(fastGoalPath, goalRoot, GOALPATHLEN-1);
-    strncat(fastGoalPath, FASTGOALDIR, GOALPATHLEN - strlen(fastGoalPath) - 1);
-    fastGoalDirExists = SD.exists(fastGoalPath);
-    if (fastGoalDirExists) {
-        fastGoalSounds = listFiles(fastGoalPath, &fastGoalSoundsNum);
-    }
-    Serial.print(F("goal sound is: "));
-    Serial.println(goalSounds[0]);
-    for (int j=0; j < 20; j++) {
-        Serial.print(*goalSounds + j);
-    }
-    Serial.println(F("##"));
-    // Build slow goal path and file list
-    strncpy(slowGoalPath, goalRoot, GOALPATHLEN-1);
-    strncat(slowGoalPath, SLOWGOALDIR, GOALPATHLEN - strlen(slowGoalPath) - 1);
-    slowGoalDirExists = SD.exists(slowGoalPath);
-    if (slowGoalDirExists) {
-        slowGoalSounds = listFiles(slowGoalPath, &slowGoalSoundsNum);
-    }
-
-    randomSeed(analogRead(UNUSED_ANALOG_PIN));
-    strncpy(goalFilePath, fastGoalPath, GOALFILEPATHLEN-1);
-    strncat(goalFilePath, fastGoalSounds[1], GOALFILEPATHLEN - strlen(goalFilePath) - 1);
-    Serial.print(F("playing: "));
-    Serial.println(goalFilePath);
     musicPlayer.startPlayingFile(goalFilePath);
-*/
 }
 
 void getSoundFilePath(char *soundFilePath, char *dirName, uint16_t themeFilePosition) {
@@ -256,32 +246,49 @@ void readTheme(char *dirName) {
         return;
     }
     goalSoundCount = fastGoalSoundCount = slowGoalSoundCount = 0;
-    const char FILELINELEN = 30;
     char fileLine[FILELINELEN];
-    uint16_t *currentlyReading;
+    uint16_t **currentlyReading;
     uint8_t *currentlyCounting;
     uint16_t lineStartPosition;
-    uint8_t i;
     while (themeFile.available()) {
         lineStartPosition = themeFile.position();
         readline(fileLine, themeFile, FILELINELEN - 1);
         if (strncmp(fileLine, "#", 1) == 0) {
             continue;
         } else if (strncmp(fileLine, GOALDIR, 5) == 0 && strlen(fileLine) == 5) {
-            currentlyReading = goalSoundIndices;
+            currentlyReading = &goalSoundIndices;
             currentlyCounting = &goalSoundCount;
         } else if (strncmp(fileLine, FASTGOALDIR, 9) == 0) {
-            currentlyReading = fastGoalSoundIndices;
+            currentlyReading = &fastGoalSoundIndices;
             currentlyCounting = &fastGoalSoundCount;
         } else if (strncmp(fileLine, SLOWGOALDIR, 9) == 0) {
-            currentlyReading = slowGoalSoundIndices;
+            currentlyReading = &slowGoalSoundIndices;
             currentlyCounting = &slowGoalSoundCount;
         } else {
-            currentlyReading[*currentlyCounting] = lineStartPosition;
+            uint16_t *tmp = (uint16_t *) realloc(*currentlyReading, (*currentlyCounting+1) * sizeof(uint16_t *));
+            if (*tmp == NULL) {
+                Serial.println(F("ran out of memory during realloc()"));
+                break;
+            }
+            *currentlyReading = tmp;
+            (*currentlyReading)[*currentlyCounting] = lineStartPosition;
+/*
+            Serial.print(*currentlyCounting); Serial.print(F(" "));
+            Serial.println((*currentlyReading)[*currentlyCounting]);
+*/
             (*currentlyCounting)++;
         }
     }
     themeFile.close();
+/*
+    Serial.println(F("&&"));
+    Serial.print(F("goalSoundIndices: "));
+    for (int j=0; j < 20; j++) {
+        Serial.print(goalSoundIndices[j]); Serial.print(F(" "));
+    }
+    Serial.println(F("@@"));
+    Serial.println(goalSoundCount);
+*/
 }
 
 void readline(char *line, File file, uint8_t maxlen) {
