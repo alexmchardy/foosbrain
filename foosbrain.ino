@@ -62,6 +62,9 @@ uint8_t goalSoundCount;
 uint8_t fastGoalSoundCount;
 uint8_t slowGoalSoundCount;
 
+#define THEME_BUTTON_PIN 10
+bool themeButtonPressed = false;
+
 // Setup goal detection
 #define GOAL_PIN_BLACK 8
 #define GOAL_PIN_YELLOW 9
@@ -89,6 +92,12 @@ void goalSensorChange() {
     }
 }
 
+void themeButtonChange() {
+    if (PCintPort::pinState == LOW) {
+        themeButtonPressed = true;
+    }
+}
+
 void setup() {
 
     Serial.begin(9600);
@@ -108,9 +117,12 @@ void setup() {
     // Initialize the SD card
     initSoundFiles();
 
-/*
     // initialize the LED pin as an output:
     pinMode(LEDPIN, OUTPUT);
+
+    // Set up theme-change button
+    digitalWrite(THEME_BUTTON_PIN, INPUT_PULLUP);
+    attachPinChangeInterrupt(THEME_BUTTON_PIN, themeButtonChange, CHANGE);
 
     // Set the goal sensors pins
     digitalWrite(GOAL_PIN_BLACK, INPUT_PULLUP);
@@ -122,7 +134,6 @@ void setup() {
 
     // Make a tone to indicate we're ready to roll
     musicPlayer.sineTest(0x44, 500);
-*/
 }
 
 void loop(){
@@ -143,6 +154,9 @@ void loop(){
             //musicPlayer.startPlayingFile(goalSoundFile.c_str());
         }
     }
+    if (themeButtonPressed) {
+        //setNextTheme();
+    }
 }
 
 /*
@@ -153,6 +167,9 @@ void getGoalSoundFile(char *goalFile, uint32_t goalTime) {
         goalDir = SLOWGOALDIR;
     }
     String fileName = goalSounds[random(1, goalSounds[0].toInt())];
+}
+
+void setNextTheme() {
 }
 */
 
