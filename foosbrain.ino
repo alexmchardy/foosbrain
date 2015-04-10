@@ -37,16 +37,16 @@ const uint8_t THEMEPATHLEN = 40; // 3*12 + 3 ("/"s) + 1 ("\0")
 const uint8_t GOALPATHLEN = 53; // 4*12 + 4 ("/"s) + 1 ("\0")
 const uint8_t THEMEFILEPATHLEN = 53; // 4*12 + 4 ("/"s) + 1 ("\0")
 const uint8_t GOALFILEPATHLEN = 66; // 5*12 + 5 ("/"s) + 1 ("\0")
-const char ROOT[6] = "foos/";
-const char SETTINGSFILENAME[13] = "settings.txt";
-const char THEMEDIRKEY[10] = "themeDir:";
-const char GOALSOUNDDELAYKEY[16] = "goalSoundDelay:";
-const char THEMESDIR[8] = "themes/";
-const char THEMEFILENAME[11] = "/theme.txt";
-const char KEYSOUNDKEY[10] = "keySound:";
-const char GOALDIR[7] = "/goal/";
-const char FASTGOALDIR[11] = "/goalfast/";
-const char SLOWGOALDIR[11] = "/goalslow/";
+const char ROOT[6] PROGMEM = "foos/";
+const char SETTINGSFILENAME[13] PROGMEM = "settings.txt";
+const char THEMEDIRKEY[10] PROGMEM = "themeDir:";
+const char GOALSOUNDDELAYKEY[16] PROGMEM = "goalSoundDelay:";
+const char THEMESDIR[8] PROGMEM = "themes/";
+const char THEMEFILENAME[11] PROGMEM = "/theme.txt";
+const char KEYSOUNDKEY[10] PROGMEM = "keySound:";
+const char GOALDIR[7] PROGMEM = "/goal/";
+const char FASTGOALDIR[11] PROGMEM = "/goalfast/";
+const char SLOWGOALDIR[11] PROGMEM = "/goalslow/";
 bool fastGoalDirExists = false;
 bool slowGoalDirExists = false;
 char settingsFilePath[SETTINGSPATHLEN];
@@ -193,8 +193,8 @@ void queueNewGoalSound(uint32_t goalTime) {
 
 void setNextTheme() {
     // Build theme path
-    strncpy(themePath, ROOT, THEMEPATHLEN-1);
-    strncat(themePath, THEMESDIR, THEMEPATHLEN - strlen(themePath) - 1);
+    strncpy_P(themePath, ROOT, THEMEPATHLEN-1);
+    strncat_P(themePath, THEMESDIR, THEMEPATHLEN - strlen(themePath) - 1);
     getNextTheme(themePath);
     setTheme(themePath);
     //saveThemeInSettings();
@@ -207,8 +207,8 @@ void initSoundFiles() {
     readSettings();
 
     // Build theme path from theme dir in settings file
-    strncpy(themePath, ROOT, THEMEPATHLEN-1);
-    strncat(themePath, THEMESDIR, THEMEPATHLEN - strlen(themePath) - 1);
+    strncpy_P(themePath, ROOT, THEMEPATHLEN-1);
+    strncat_P(themePath, THEMESDIR, THEMEPATHLEN - strlen(themePath) - 1);
     strncat(themePath, themeDirName, THEMEPATHLEN - strlen(themePath) - 1);
 
     // Set the theme
@@ -216,11 +216,11 @@ void initSoundFiles() {
 }
 
 void readSettings() {
-    strncpy(settingsFilePath, ROOT, SETTINGSPATHLEN-1);
+    strncpy_P(settingsFilePath, ROOT, SETTINGSPATHLEN-1);
     if (!SD.exists(settingsFilePath)) {
         Serial.println(F("Error: foos/ dir not found on SD card"));
     }
-    strncat(settingsFilePath, SETTINGSFILENAME, SETTINGSPATHLEN - strlen(settingsFilePath) - 1);
+    strncat_P(settingsFilePath, SETTINGSFILENAME, SETTINGSPATHLEN - strlen(settingsFilePath) - 1);
     Serial.print(F("settingsFilePath: ")); Serial.println(settingsFilePath);
     if (!SD.exists(settingsFilePath)) {
         Serial.println(F("Error: foos/settings.txt not found"));
@@ -232,9 +232,9 @@ void readSettings() {
     char fileLine[FILELINELEN];
     while (settingsFile.available()) {
         readline(fileLine, settingsFile, FILELINELEN-1);
-        if (strncmp(fileLine, THEMEDIRKEY, 9) == 0) {
+        if (strncmp_P(fileLine, THEMEDIRKEY, 9) == 0) {
             strncpy(themeDirName, fileLine+9, NAMELEN-1);
-        } else if (strncmp(fileLine, GOALSOUNDDELAYKEY, 15) == 0) {
+        } else if (strncmp_P(fileLine, GOALSOUNDDELAYKEY, 15) == 0) {
             char numStr[6];
             goalSoundDelay = atoi(strncpy(numStr, fileLine+15, 5));
             Serial.print(F("the goalSoundDelay is: "));
@@ -250,7 +250,7 @@ void setTheme(char *themePathPassed) {
 
     // Build regular goal path
     strncpy(goalPath, themePathPassed, GOALPATHLEN-1);
-    strncat(goalPath, GOALDIR, GOALPATHLEN - strlen(goalPath) - 1);
+    strncat_P(goalPath, GOALDIR, GOALPATHLEN - strlen(goalPath) - 1);
     if (goalSoundCount == 0 || !SD.exists(goalPath)) {
         Serial.print(F("goal path not found: ")); Serial.println(goalPath);
         return;
@@ -262,7 +262,7 @@ void setTheme(char *themePathPassed) {
     // Build fast goal path
     if (fastGoalSoundCount > 0) {
         strncpy(fastGoalPath, themePathPassed, GOALPATHLEN-1);
-        strncat(fastGoalPath, FASTGOALDIR, GOALPATHLEN - strlen(fastGoalPath) - 1);
+        strncat_P(fastGoalPath, FASTGOALDIR, GOALPATHLEN - strlen(fastGoalPath) - 1);
         if (fastGoalDirExists = SD.exists(fastGoalPath)) {
             // Queue up a random fast goal file path
             getSoundFilePath(fastGoalFilePath, fastGoalPath, fastGoalSoundIndices[random(0, fastGoalSoundCount-1)]);
@@ -272,7 +272,7 @@ void setTheme(char *themePathPassed) {
     // Build slow goal path
     if (slowGoalSoundCount > 0) {
         strncpy(slowGoalPath, themePathPassed, GOALPATHLEN-1);
-        strncat(slowGoalPath, SLOWGOALDIR, GOALPATHLEN - strlen(slowGoalPath) - 1);
+        strncat_P(slowGoalPath, SLOWGOALDIR, GOALPATHLEN - strlen(slowGoalPath) - 1);
         if (slowGoalDirExists = SD.exists(slowGoalPath)) {
             // Queue up a random slow goal file path
             getSoundFilePath(slowGoalFilePath, slowGoalPath, slowGoalSoundIndices[random(0, slowGoalSoundCount-1)]);
@@ -303,7 +303,7 @@ void getSoundFilePath(char *soundFilePath, char *dirName, uint16_t themeFilePosi
 
 void readTheme(char *dirName) {
     strncpy(themeFilePath, dirName, THEMEFILEPATHLEN - 1);
-    strncat(themeFilePath, THEMEFILENAME, THEMEFILEPATHLEN - 1);
+    strncat_P(themeFilePath, THEMEFILENAME, THEMEFILEPATHLEN - 1);
     File themeFile = SD.open(themeFilePath, FILE_READ);
     if (!themeFile.available()) {
         Serial.print(F("theme.txt not found in ")); Serial.println(dirName);
@@ -319,7 +319,7 @@ void readTheme(char *dirName) {
         readline(fileLine, themeFile, FILELINELEN - 1);
         if (strncmp(fileLine, "#", 1) == 0) {
             continue;
-        } else if (strncmp(fileLine, KEYSOUNDKEY, 9) == 0) {
+        } else if (strncmp_P(fileLine, KEYSOUNDKEY, 9) == 0) {
             strncpy(themeKeySoundFilePath, dirName, GOALFILEPATHLEN - 1);
             strncat(themeKeySoundFilePath, fileLine+9, GOALFILEPATHLEN - strlen(themeKeySoundFilePath) - 1);
         } else if (strncmp(fileLine, GOALDIR, 5) == 0 && strlen(fileLine) == 5) {
