@@ -2,14 +2,16 @@
   IR Breakbeam with Mp3
 */
 // include PinChangeInt (with optimization switches)
-#define NO_PORTC_PINCHANGES // to indicate that port c will not be used for pin change interrupts
-#define NO_PORTD_PINCHANGES // to indicate that port d will not be used for pin change interrupts
+#define NO_PORTJ_PINCHANGES // to indicate that port j will not be used for pin change interrupts
+#define NO_PORTK_PINCHANGES // to indicate that port k will not be used for pin change interrupts
 #include <PinChangeInt.h>
 
-// include SPI, MP3 and SD libraries
+// include SPI, MP3 and SdFat libraries
 #include <SPI.h>
 #include <Adafruit_VS1053.h>
-#include <SD.h>
+#include <SdFat.h>
+// SD file system object
+SdFat SD;
 
 // These are the pins used for the music maker shield
 #define SHIELD_RESET  -1      // VS1053 reset pin (unused!)
@@ -19,7 +21,7 @@
 #define CARDCS 4     // Card chip select pin
 // DREQ should be an Int pin, see http://arduino.cc/en/Reference/attachInterrupt
 #define DREQ 3       // VS1053 Data request, ideally an Interrupt pin
-// Create shield-example object!
+// Create shield-example object
 Adafruit_VS1053_FilePlayer musicPlayer =
     Adafruit_VS1053_FilePlayer(SHIELD_RESET, SHIELD_CS, SHIELD_DCS, DREQ, CARDCS);
 
@@ -29,6 +31,14 @@ Adafruit_VS1053_FilePlayer musicPlayer =
 // Pin 13: Arduino has an LED connected on pin 13
 #define LEDPIN 13
 
+// Goal detection
+#define GOAL_PIN_BLACK 10
+// TODO: Why doesn't pin 11 work!?!?!?!?!?!
+#define GOAL_PIN_YELLOW 11
+
+// Theme change button
+#define THEME_BUTTON_PIN 12
+
 // File reading/writing
 const uint8_t NAMELEN = 13;
 const uint8_t FILELINELEN = 35;
@@ -37,6 +47,7 @@ const uint8_t THEMEPATHLEN = 40; // 3*12 + 3 ("/"s) + 1 ("\0")
 const uint8_t GOALPATHLEN = 53; // 4*12 + 4 ("/"s) + 1 ("\0")
 const uint8_t THEMEFILEPATHLEN = 53; // 4*12 + 4 ("/"s) + 1 ("\0")
 const uint8_t GOALFILEPATHLEN = 66; // 5*12 + 5 ("/"s) + 1 ("\0")
+const char DIRSEP[2] PROGMEM = "/";
 const char ROOT[6] PROGMEM = "foos/";
 const char SETTINGSFILENAME[13] PROGMEM = "settings.txt";
 const char THEMEDIRKEY[10] PROGMEM = "themeDir:";
@@ -50,6 +61,9 @@ const char SLOWGOALDIR[11] PROGMEM = "/goalslow/";
 bool fastGoalDirExists = false;
 bool slowGoalDirExists = false;
 char settingsFilePath[SETTINGSPATHLEN];
+uint16_t *themeIndices = NULL;
+uint8_t themeCount = 0;
+uint8_t currentThemeIndex = 0;
 char themeDirName[NAMELEN];
 char themeFilePath[THEMEFILEPATHLEN];
 char themePath[THEMEPATHLEN];
@@ -68,20 +82,19 @@ uint8_t goalSoundCount;
 uint8_t fastGoalSoundCount;
 uint8_t slowGoalSoundCount;
 
-#define THEME_BUTTON_PIN 10
-bool themeButtonPressed = false;
+volatile bool themeButtonPressed = false;
+uint32_t themeButtonPressTime = 0;
 
 // Setup goal detection
-#define GOAL_PIN_BLACK 8
-#define GOAL_PIN_YELLOW 9
 #define GOAL_MS_SLOW 20
 #define GOAL_MS_FAST 10
-uint32_t blackGoalStartTime;
+uint32_t blackGoalStartTime = 0;
 volatile uint32_t blackGoalTime = 0;
-uint32_t yellowGoalStartTime;
+uint32_t yellowGoalStartTime = 0;
 volatile uint32_t yellowGoalTime = 0;
 
 void goalSensorChange() {
+    uint32_t time = millis();
     uint32_t *startTime;
     volatile uint32_t *goalTime;
     if (PCintPort::arduinoPin == GOAL_PIN_BLACK) {
@@ -91,16 +104,20 @@ void goalSensorChange() {
         startTime = &yellowGoalStartTime;
         goalTime = &yellowGoalTime;
     }
-    if (PCintPort::pinState == LOW) {
-        *startTime = millis();
-    } else {
+    if (PCintPort::pinState == LOW && (time - *startTime) > 100) {
+        *startTime = time;
+    }
+    if (PCintPort::pinState == HIGH && *startTime > 0) {
         *goalTime = millis() - *startTime;
+        *startTime = 0;
     }
 }
 
 void themeButtonChange() {
-    if (PCintPort::pinState == LOW) {
+    uint32_t time = millis();
+    if (PCintPort::arduinoPin == THEME_BUTTON_PIN && PCintPort::pinState == LOW && (time - themeButtonPressTime) > 500) {
         themeButtonPressed = true;
+        themeButtonPressTime = millis();
     }
 }
 
@@ -108,11 +125,15 @@ void setup() {
 
     Serial.begin(9600);
 
+    //Serial.print(F("Free RAM 1: ")); Serial.println(freeRam());
+
     if (! musicPlayer.begin()) { // initialise the music player
         Serial.println(F("Couldn't find VS1053, do you have the right pins defined?"));
         while (1);
     }
     Serial.println(F("VS1053 found"));
+
+    //Serial.print(F("Free RAM 2: ")); Serial.println(freeRam());
 
     // Set volume for left, right channels. lower numbers == louder volume!
     musicPlayer.setVolume(20,20);
@@ -120,8 +141,13 @@ void setup() {
     // If DREQ is on an interrupt pin (on uno, #2 or #3) we can do background audio playing
     musicPlayer.useInterrupt(VS1053_FILEPLAYER_PIN_INT);  // DREQ int
 
+    // Make a tone to indicate we're ready to roll
+    musicPlayer.sineTest(0x44, 500);
+
     // Initialize the SD card
     initSoundFiles();
+
+    //Serial.print(F("Free RAM 3: ")); Serial.println(freeRam());
 
     // initialize the LED pin as an output:
     pinMode(LEDPIN, OUTPUT);
@@ -137,9 +163,6 @@ void setup() {
     // Attach goal sensor interrupts
     attachPinChangeInterrupt(GOAL_PIN_BLACK, goalSensorChange, CHANGE);
     attachPinChangeInterrupt(GOAL_PIN_YELLOW, goalSensorChange, CHANGE);
-
-    // Make a tone to indicate we're ready to roll
-    musicPlayer.sineTest(0x44, 500);
 }
 
 void loop(){
@@ -148,6 +171,7 @@ void loop(){
         if (blackGoalTime) {
             Serial.print(F("Black Goal: ")); Serial.print(blackGoalTime); Serial.println(F(" ms"));
             getGoalSound(soundToPlay, blackGoalTime);
+            blackGoalStartTime = 0;
             blackGoalTime = 0;
             musicPlayer.setVolume(20,254);
             musicPlayer.startPlayingFile(soundToPlay);
@@ -163,6 +187,7 @@ void loop(){
         }
     }
     if (themeButtonPressed) {
+        themeButtonPressed = false;
         setNextTheme();
     }
 }
@@ -200,11 +225,15 @@ void setNextTheme() {
     //saveThemeInSettings();
 }
 
-void initSoundFiles() {
-    SD.begin(CARDCS);
+inline void initSoundFiles() {
+    if (!SD.begin(CARDCS)) {
+        SD.initErrorHalt();
+    }
 
     // Read settings file
     readSettings();
+
+    //Serial.print(F("Free RAM 5: ")); Serial.println(freeRam());
 
     // Build theme path from theme dir in settings file
     strncpy_P(themePath, ROOT, THEMEPATHLEN-1);
@@ -215,38 +244,60 @@ void initSoundFiles() {
     setTheme(themePath);
 }
 
-void readSettings() {
+inline void readSettings() {
     strncpy_P(settingsFilePath, ROOT, SETTINGSPATHLEN-1);
     if (!SD.exists(settingsFilePath)) {
         Serial.println(F("Error: foos/ dir not found on SD card"));
     }
     strncat_P(settingsFilePath, SETTINGSFILENAME, SETTINGSPATHLEN - strlen(settingsFilePath) - 1);
-    Serial.print(F("settingsFilePath: ")); Serial.println(settingsFilePath);
     if (!SD.exists(settingsFilePath)) {
         Serial.println(F("Error: foos/settings.txt not found"));
     }
-    File settingsFile = SD.open(settingsFilePath, FILE_READ);
-    if (!settingsFile.available()) {
+    ifstream settingsFileStream(settingsFilePath);
+    if (!settingsFileStream.is_open()) {
         Serial.println(F("settings.txt not found"));
     }
+    uint16_t lineStartPosition;
+    bool readingThemes = false;
     char fileLine[FILELINELEN];
-    while (settingsFile.available()) {
-        readline(fileLine, settingsFile, FILELINELEN-1);
-        if (strncmp_P(fileLine, THEMEDIRKEY, 9) == 0) {
+    while (1) {
+        lineStartPosition = settingsFileStream.tellg();
+        settingsFileStream.getline(fileLine, FILELINELEN);
+        if (settingsFileStream.fail()) {
+            break;
+        }
+        settingsFileStream.skipWhite();
+        if (strncmp(fileLine, "#", 1) == 0) {
+            continue;
+        } else if (strncmp_P(fileLine, THEMEDIRKEY, 9) == 0) {
             strncpy(themeDirName, fileLine+9, NAMELEN-1);
         } else if (strncmp_P(fileLine, GOALSOUNDDELAYKEY, 15) == 0) {
             char numStr[6];
             goalSoundDelay = atoi(strncpy(numStr, fileLine+15, 5));
-            Serial.print(F("the goalSoundDelay is: "));
-            Serial.println(goalSoundDelay);
+        } else if (strncmp_P(fileLine, THEMESDIR, 6) == 0) {
+            readingThemes = true;
+        } else if (readingThemes) {
+            uint16_t *tmp = (uint16_t *) realloc(themeIndices, (themeCount+1) * sizeof(uint16_t *));
+            if (tmp == NULL) {
+                Serial.println(F("ran out of memory during themeIndices realloc()"));
+                break;
+            }
+            themeIndices = tmp;
+            themeIndices[themeCount] = lineStartPosition;
+            themeCount++;
         }
     }
-    settingsFile.close();
+    settingsFileStream.close();
 }
 
 void setTheme(char *themePathPassed) {
+
+    //Serial.print(F("Free RAM 6: ")); Serial.println(freeRam());
+
     // Read the theme.txt file
     readTheme(themePathPassed);
+
+    //Serial.print(F("Free RAM 7: ")); Serial.println(freeRam());
 
     // Build regular goal path
     strncpy(goalPath, themePathPassed, GOALPATHLEN-1);
@@ -258,6 +309,8 @@ void setTheme(char *themePathPassed) {
     // Queue up a random regular goal file path
     randomSeed(analogRead(UNUSED_ANALOG_PIN));
     getSoundFilePath(goalFilePath, goalPath, goalSoundIndices[random(0, goalSoundCount-1)]);
+
+    //Serial.print(F("Free RAM 8: ")); Serial.println(freeRam());
 
     // Build fast goal path
     if (fastGoalSoundCount > 0) {
@@ -279,8 +332,11 @@ void setTheme(char *themePathPassed) {
         }
     }
 
+    //Serial.print(F("Free RAM 9: ")); Serial.println(freeRam());
+
     // Play the key sound for this theme if it exists
     if (SD.exists(themeKeySoundFilePath)) {
+        Serial.print(F("Playing: ")); Serial.println(themeKeySoundFilePath);
         musicPlayer.startPlayingFile(themeKeySoundFilePath);
     }
 }
@@ -293,10 +349,14 @@ void setTheme(char *themePathPassed) {
  * uint16_t themeFilePosition byte position in theme file where sound filename can be found
  */
 void getSoundFilePath(char *soundFilePath, char *dirName, uint16_t themeFilePosition) {
-    File themeFile = SD.open(themeFilePath, FILE_READ);
-    themeFile.seek(themeFilePosition);
+    ifstream themeFileStream(themeFilePath);
+    if (!themeFileStream.is_open()) {
+        Serial.print(F("Unable to open theme.txt in ")); Serial.println(dirName);
+    }
+    themeFileStream.seekg(themeFilePosition);
     char fileName[NAMELEN];
-    readword(fileName, themeFile, NAMELEN - 1);
+    themeFileStream.get(fileName, NAMELEN);
+    themeFileStream.close();
     strncpy(soundFilePath, dirName, GOALFILEPATHLEN - 1);
     strncat(soundFilePath, fileName, GOALFILEPATHLEN - strlen(soundFilePath) - 1);
 }
@@ -304,8 +364,8 @@ void getSoundFilePath(char *soundFilePath, char *dirName, uint16_t themeFilePosi
 void readTheme(char *dirName) {
     strncpy(themeFilePath, dirName, THEMEFILEPATHLEN - 1);
     strncat_P(themeFilePath, THEMEFILENAME, THEMEFILEPATHLEN - 1);
-    File themeFile = SD.open(themeFilePath, FILE_READ);
-    if (!themeFile.available()) {
+    ifstream themeFileStream(themeFilePath);
+    if (!themeFileStream.is_open()) {
         Serial.print(F("theme.txt not found in ")); Serial.println(dirName);
         return;
     }
@@ -314,158 +374,81 @@ void readTheme(char *dirName) {
     uint16_t **currentlyReading;
     uint8_t *currentlyCounting;
     uint16_t lineStartPosition;
-    while (themeFile.available()) {
-        lineStartPosition = themeFile.position();
-        readline(fileLine, themeFile, FILELINELEN - 1);
+    while (1) {
+        lineStartPosition = themeFileStream.tellg();
+        themeFileStream.getline(fileLine, FILELINELEN);
+        if (themeFileStream.fail()) {
+            break;
+        }
+        themeFileStream.skipWhite();
         if (strncmp(fileLine, "#", 1) == 0) {
             continue;
         } else if (strncmp_P(fileLine, KEYSOUNDKEY, 9) == 0) {
             strncpy(themeKeySoundFilePath, dirName, GOALFILEPATHLEN - 1);
             strncat(themeKeySoundFilePath, fileLine+9, GOALFILEPATHLEN - strlen(themeKeySoundFilePath) - 1);
-        } else if (strncmp(fileLine, GOALDIR, 5) == 0 && strlen(fileLine) == 5) {
+        } else if (strncmp_P(fileLine, GOALDIR, 5) == 0 && strlen(fileLine) == 5) {
             currentlyReading = &goalSoundIndices;
             currentlyCounting = &goalSoundCount;
-        } else if (strncmp(fileLine, FASTGOALDIR, 9) == 0) {
+        } else if (strncmp_P(fileLine, FASTGOALDIR, 9) == 0) {
             currentlyReading = &fastGoalSoundIndices;
             currentlyCounting = &fastGoalSoundCount;
-        } else if (strncmp(fileLine, SLOWGOALDIR, 9) == 0) {
+        } else if (strncmp_P(fileLine, SLOWGOALDIR, 9) == 0) {
             currentlyReading = &slowGoalSoundIndices;
             currentlyCounting = &slowGoalSoundCount;
         } else {
             uint16_t *tmp = (uint16_t *) realloc(*currentlyReading, (*currentlyCounting+1) * sizeof(uint16_t *));
-            if (*tmp == NULL) {
-                Serial.println(F("ran out of memory during realloc()"));
+            if (tmp == NULL) {
+                Serial.println(F("ran out of memory during goal sound realloc()"));
                 break;
             }
             *currentlyReading = tmp;
             (*currentlyReading)[*currentlyCounting] = lineStartPosition;
-/*
-            Serial.print(*currentlyCounting); Serial.print(F(" "));
-            Serial.println((*currentlyReading)[*currentlyCounting]);
-*/
             (*currentlyCounting)++;
         }
     }
-    themeFile.close();
-/*
-    Serial.println(F("&&"));
-    Serial.print(F("goalSoundIndices: "));
-    for (int j=0; j < 20; j++) {
-        Serial.print(goalSoundIndices[j]); Serial.print(F(" "));
-    }
-    Serial.println(F("@@"));
-    Serial.println(goalSoundCount);
-*/
+    themeFileStream.close();
 }
 
 void getNextTheme(char *themePathPassed) {
-    uint8_t i = 0;
-    bool afterCurrentTheme = false;
-    File dir = SD.open(themePathPassed);
-    File entry = dir.openNextFile();
-    while (entry && i++ < 255) {
-        if (entry.isDirectory()) {
-            if (afterCurrentTheme) {
-                break;
-            }
-            if (strncmp(entry.name(), themeDirName, NAMELEN - 1) == 0) {
-                // Found current theme dir
-                afterCurrentTheme = true;
-            }
-        }
-        entry.close();
-        entry = dir.openNextFile();
-        if (!entry) {
-            // Loop back around to beginning of directlry listing
-            dir.rewindDirectory();
-            entry = dir.openNextFile();
-        }
+    ifstream settingsFileStream(settingsFilePath);
+    if (++currentThemeIndex >= themeCount) {
+        currentThemeIndex = 0;
     }
-
-    strncat(themePathPassed, entry.name(), THEMEPATHLEN - strlen(themePathPassed) - 1);
-}
-
-void readline(char *line, File file, uint8_t maxlen) {
-    uint8_t i = 0;
-    char c;
-    while (i < maxlen && file.available()) {
-        c = (char)file.read();
-        if (c == '\r' || c == '\n') {
-            break;
-        }
-        line[i] = c;
-        i++;
-    }
-    line[i] = '\0';
-}
-
-void readword(char *word, File file, uint8_t maxlen) {
-    uint8_t i = 0;
-    char c;
-    while (i < maxlen && file.available()) {
-        c = (char)file.read();
-        if (c == ' ' || c == ',' || c == '\t' || c == '\r' || c == '\n') {
-            break;
-        }
-        word[i] = c;
-        i++;
-    }
-    word[i] = '\0';
-}
-
-char ** listFiles(char *dirName, uint8_t *numFiles) {
-    uint8_t i = 0;
-    //char filename[NAMELEN];
-    //char **fileList = NULL;
-    //Serial.print(F("goal sound now is: "));
-    //Serial.println(goalSounds[7]);
-
-    File dir = SD.open(dirName);
-    File entry = dir.openNextFile();
-    char **fileList = NULL;
+    settingsFileStream.seekg(themeIndices[currentThemeIndex]);
+    settingsFileStream.get(themeDirName, NAMELEN);
+    settingsFileStream.close();
+    strncat(themePathPassed, themeDirName, THEMEPATHLEN - strlen(themePathPassed) - 1);
 /*
-    char **fileList = (char **) malloc(sizeof(char *[1]));
-    if (*fileList == NULL) {
-        Serial.println(F("ran out of memory during malloc()"));
-        return fileList;
-    }
-*/
-    while (entry) {
-        Serial.print(F("file found: "));
-        Serial.println(entry.name());
-/*
-        if (i == 0) {
-            // Malloc space for the first entry pointer
-            fileList = (char **) malloc(sizeof(char *));
-            if (*fileList == NULL) {
-                Serial.println(F("ran out of memory during malloc()"));
-                break;
-            }
-        } else {
-*/
-        //if (i != 0) {
-            // Realloc space for remaining entry pointers
-            char **tmp = (char **) realloc(fileList, sizeof(char *[i+1]));
-            if (*tmp == NULL) {
-                Serial.println(F("ran out of memory during realloc()"));
-                break;
-            }
-            fileList = tmp;
-        //}
-        //strncpy(filename, entry.name(), NAMELEN-1);
-        // Malloc space for the filename entry itself in the array
-        fileList[i] = (char *) malloc(strlen(entry.name())+1);
-        if (fileList[i] == NULL) {
-            Serial.println(F("ran out of memory during filename malloc()"));
-            break;
-        }
-        strncpy(fileList[i], entry.name(), strlen(entry.name())+1);
-        entry.close();
-        i++;
-        entry = dir.openNextFile();
-    }
+    uint16_t dirIndex;
+    SdFile dir;
+    SdFile entry;
+    SdFile next;
+    dir.open(themePathPassed, O_READ);
+    entry.open(&dir, themeDirName, O_READ);
     entry.close();
+    next.openNext(&dir, O_READ);
+    next.getName(themeDirName, NAMELEN);
+    Serial.print(F("Next theme: ")); Serial.println(themeDirName);
+    next.close();
+    if (!next.openNext(&dir, O_READ)) {
+        dir.rewind();
+        next.openNext(&dir, O_READ);
+        next.getName(themeDirName, NAMELEN);
+        Serial.print(F("Rewound next theme: ")); Serial.println(themeDirName);
+    } else {
+        next.getName(themeDirName, NAMELEN);
+        Serial.print(F("Next next theme: ")); Serial.println(themeDirName);
+    }
+    strncat(themePathPassed, themeDirName, THEMEPATHLEN - strlen(themePathPassed) - 1);
+    next.close();
     dir.close();
-    *numFiles = i;
-    return fileList;
+*/
 }
+
+/*
+int freeRam () {
+  extern int __heap_start, *__brkval;
+  int v;
+  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
+}
+*/
