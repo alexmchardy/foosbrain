@@ -125,15 +125,11 @@ void setup() {
 
     Serial.begin(9600);
 
-    //Serial.print(F("Free RAM 1: ")); Serial.println(freeRam());
-
     if (! musicPlayer.begin()) { // initialise the music player
         Serial.println(F("Couldn't find VS1053, do you have the right pins defined?"));
         while (1);
     }
     Serial.println(F("VS1053 found"));
-
-    //Serial.print(F("Free RAM 2: ")); Serial.println(freeRam());
 
     // Set volume for left, right channels. lower numbers == louder volume!
     musicPlayer.setVolume(20,20);
@@ -146,8 +142,6 @@ void setup() {
 
     // Initialize the SD card
     initSoundFiles();
-
-    //Serial.print(F("Free RAM 3: ")); Serial.println(freeRam());
 
     // initialize the LED pin as an output:
     pinMode(LEDPIN, OUTPUT);
@@ -233,8 +227,6 @@ inline void initSoundFiles() {
     // Read settings file
     readSettings();
 
-    //Serial.print(F("Free RAM 5: ")); Serial.println(freeRam());
-
     // Build theme path from theme dir in settings file
     strncpy_P(themePath, ROOT, THEMEPATHLEN-1);
     strncat_P(themePath, THEMESDIR, THEMEPATHLEN - strlen(themePath) - 1);
@@ -292,12 +284,8 @@ inline void readSettings() {
 
 void setTheme(char *themePathPassed) {
 
-    //Serial.print(F("Free RAM 6: ")); Serial.println(freeRam());
-
     // Read the theme.txt file
     readTheme(themePathPassed);
-
-    //Serial.print(F("Free RAM 7: ")); Serial.println(freeRam());
 
     // Build regular goal path
     strncpy(goalPath, themePathPassed, GOALPATHLEN-1);
@@ -309,8 +297,6 @@ void setTheme(char *themePathPassed) {
     // Queue up a random regular goal file path
     randomSeed(analogRead(UNUSED_ANALOG_PIN));
     getSoundFilePath(goalFilePath, goalPath, goalSoundIndices[random(0, goalSoundCount-1)]);
-
-    //Serial.print(F("Free RAM 8: ")); Serial.println(freeRam());
 
     // Build fast goal path
     if (fastGoalSoundCount > 0) {
@@ -331,8 +317,6 @@ void setTheme(char *themePathPassed) {
             getSoundFilePath(slowGoalFilePath, slowGoalPath, slowGoalSoundIndices[random(0, slowGoalSoundCount-1)]);
         }
     }
-
-    //Serial.print(F("Free RAM 9: ")); Serial.println(freeRam());
 
     // Play the key sound for this theme if it exists
     if (SD.exists(themeKeySoundFilePath)) {
@@ -444,11 +428,3 @@ void getNextTheme(char *themePathPassed) {
     dir.close();
 */
 }
-
-/*
-int freeRam () {
-  extern int __heap_start, *__brkval;
-  int v;
-  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
-}
-*/
