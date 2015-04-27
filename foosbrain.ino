@@ -2,8 +2,8 @@
   IR Breakbeam with Mp3
 */
 // include PinChangeInt (with optimization switches)
+#define NO_PORTB_PINCHANGES // to indicate that port b will not be used for pin change interrupts
 #define NO_PORTJ_PINCHANGES // to indicate that port j will not be used for pin change interrupts
-#define NO_PORTK_PINCHANGES // to indicate that port k will not be used for pin change interrupts
 #include <PinChangeInt.h>
 
 // include SPI, MP3 and SdFat libraries
@@ -32,12 +32,11 @@ Adafruit_VS1053_FilePlayer musicPlayer =
 #define LEDPIN 13
 
 // Goal detection
-#define GOAL_PIN_BLACK 10
-// TODO: Why doesn't pin 11 work!?!?!?!?!?!
-#define GOAL_PIN_YELLOW 11
+#define GOAL_PIN_BLACK A8
+#define GOAL_PIN_YELLOW A9
 
 // Theme change button
-#define THEME_BUTTON_PIN 12
+#define THEME_BUTTON_PIN A10
 
 // File reading/writing
 const uint8_t NAMELEN = 13;
@@ -168,6 +167,7 @@ void loop(){
             blackGoalStartTime = 0;
             blackGoalTime = 0;
             musicPlayer.setVolume(20,254);
+            musicPlayer.stopPlaying();
             musicPlayer.startPlayingFile(soundToPlay);
             queueNewGoalSound(blackGoalTime);
         }
@@ -176,6 +176,7 @@ void loop(){
             getGoalSound(soundToPlay, yellowGoalTime);
             yellowGoalTime = 0;
             musicPlayer.setVolume(254,20);
+            musicPlayer.stopPlaying();
             musicPlayer.startPlayingFile(soundToPlay);
             queueNewGoalSound(yellowGoalTime);
         }
@@ -321,6 +322,7 @@ void setTheme(char *themePathPassed) {
     // Play the key sound for this theme if it exists
     if (SD.exists(themeKeySoundFilePath)) {
         Serial.print(F("Playing: ")); Serial.println(themeKeySoundFilePath);
+        musicPlayer.stopPlaying();
         musicPlayer.startPlayingFile(themeKeySoundFilePath);
     }
 }
