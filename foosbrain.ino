@@ -1,10 +1,6 @@
 /* 
   IR Breakbeam with Mp3
 */
-// include PinChangeInt (with optimization switches)
-#define NO_PORTB_PINCHANGES // to indicate that port b will not be used for pin change interrupts
-#define NO_PORTJ_PINCHANGES // to indicate that port j will not be used for pin change interrupts
-#include <PinChangeInt.h>
 
 // include SPI, MP3 and SdFat libraries
 #include <SPI.h>
@@ -26,17 +22,17 @@ Adafruit_VS1053_FilePlayer musicPlayer =
     Adafruit_VS1053_FilePlayer(SHIELD_RESET, SHIELD_CS, SHIELD_DCS, DREQ, CARDCS);
 
 // Unused analog pin for seeding random number generator
-#define UNUSED_ANALOG_PIN 0
+#define UNUSED_ANALOG_PIN A0
 
 // Pin 13: Arduino has an LED connected on pin 13
 #define LEDPIN 13
 
 // Goal detection
-#define GOAL_PIN_BLACK A8
-#define GOAL_PIN_YELLOW A9
+#define GOAL_PIN_BLACK 18
+#define GOAL_PIN_YELLOW 19
 
 // Theme change button
-#define THEME_BUTTON_PIN A10
+#define THEME_BUTTON_PIN 2
 
 // File reading/writing
 const uint8_t NAMELEN = 13;
@@ -81,10 +77,13 @@ uint8_t goalSoundCount;
 uint8_t fastGoalSoundCount;
 uint8_t slowGoalSoundCount;
 
+// Setup theme button detection
+#define THEME_BUTTON_DEBOUNCE_MS 100
 volatile bool themeButtonPressed = false;
 uint32_t themeButtonPressTime = 0;
 
 // Setup goal detection
+#define GOAL_DEBOUNCE_MS 100
 #define GOAL_MS_SLOW 20
 #define GOAL_MS_FAST 10
 uint32_t blackGoalStartTime = 0;
@@ -92,31 +91,44 @@ volatile uint32_t blackGoalTime = 0;
 uint32_t yellowGoalStartTime = 0;
 volatile uint32_t yellowGoalTime = 0;
 
-void goalSensorChange() {
+void blackGoalSensorFalling() {
     uint32_t time = millis();
-    uint32_t *startTime;
-    volatile uint32_t *goalTime;
-    if (PCintPort::arduinoPin == GOAL_PIN_BLACK) {
-        startTime = &blackGoalStartTime;
-        goalTime = &blackGoalTime;
-    } else {
-        startTime = &yellowGoalStartTime;
-        goalTime = &yellowGoalTime;
-    }
-    if (PCintPort::pinState == LOW && (time - *startTime) > 100) {
-        *startTime = time;
-    }
-    if (PCintPort::pinState == HIGH && *startTime > 0) {
-        *goalTime = millis() - *startTime;
-        *startTime = 0;
+    // Debounce falling input
+    if ((time - blackGoalStartTime) > GOAL_DEBOUNCE_MS) {
+        blackGoalStartTime = time;
     }
 }
 
-void themeButtonChange() {
+void blackGoalSensorRising() {
+    if (blackGoalStartTime > 0) {
+        blackGoalTime = millis() - blackGoalStartTime;
+        blackGoalStartTime = 0;
+    }
+}
+
+void yellowGoalSensorFalling() {
     uint32_t time = millis();
-    if (PCintPort::arduinoPin == THEME_BUTTON_PIN && PCintPort::pinState == LOW && (time - themeButtonPressTime) > 500) {
+    // Debounce falling input
+    if ((time - yellowGoalStartTime) > GOAL_DEBOUNCE_MS) {
+        yellowGoalStartTime = time;
+    }
+}
+
+void yellowGoalSensorRising() {
+    if (yellowGoalStartTime > 0) {
+        yellowGoalTime = millis() - yellowGoalStartTime;
+        yellowGoalStartTime = 0;
+    }
+}
+
+/**
+ * Detects debounced theme button press, setting themeButtonPressed to true
+ */
+void themeButtonFalling() {
+    uint32_t time = millis();
+    if ((time - themeButtonPressTime) > THEME_BUTTON_DEBOUNCE_MS) {
         themeButtonPressed = true;
-        themeButtonPressTime = millis();
+        themeButtonPressTime = time;
     }
 }
 
@@ -147,15 +159,17 @@ void setup() {
 
     // Set up theme-change button
     digitalWrite(THEME_BUTTON_PIN, INPUT_PULLUP);
-    attachPinChangeInterrupt(THEME_BUTTON_PIN, themeButtonChange, CHANGE);
+    attachInterrupt(THEME_BUTTON_PIN, themeButtonFalling, FALLING);
 
     // Set the goal sensors pins
     digitalWrite(GOAL_PIN_BLACK, INPUT_PULLUP);
     digitalWrite(GOAL_PIN_YELLOW, INPUT_PULLUP);
 
     // Attach goal sensor interrupts
-    attachPinChangeInterrupt(GOAL_PIN_BLACK, goalSensorChange, CHANGE);
-    attachPinChangeInterrupt(GOAL_PIN_YELLOW, goalSensorChange, CHANGE);
+    attachInterrupt(GOAL_PIN_BLACK, blackGoalSensorFalling, FALLING);
+    attachInterrupt(GOAL_PIN_BLACK, blackGoalSensorRising, RISING);
+    attachInterrupt(GOAL_PIN_YELLOW, yellowGoalSensorFalling, FALLING);
+    attachInterrupt(GOAL_PIN_YELLOW, yellowGoalSensorRising, RISING);
 }
 
 void loop(){
