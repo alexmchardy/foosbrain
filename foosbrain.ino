@@ -28,11 +28,14 @@ Adafruit_VS1053_FilePlayer musicPlayer =
 #define LEDPIN 13
 
 // Goal detection
-#define GOAL_PIN_BLACK 18
-#define GOAL_PIN_YELLOW 19
+#define GOAL_PIN_BLACK 20
+#define GOAL_INTERRUPT_NUM_BLACK 3
+#define GOAL_PIN_YELLOW 21
+#define GOAL_INTERRUPT_NUM_YELLOW 2
 
 // Theme change button
 #define THEME_BUTTON_PIN 2
+#define THEME_BUTTON_INTERRUPT_NUM 0
 
 // File reading/writing
 const uint8_t NAMELEN = 13;
@@ -78,7 +81,7 @@ uint8_t fastGoalSoundCount;
 uint8_t slowGoalSoundCount;
 
 // Setup theme button detection
-#define THEME_BUTTON_DEBOUNCE_MS 100
+#define THEME_BUTTON_DEBOUNCE_MS 300
 volatile bool themeButtonPressed = false;
 uint32_t themeButtonPressTime = 0;
 
@@ -86,9 +89,9 @@ uint32_t themeButtonPressTime = 0;
 #define GOAL_DEBOUNCE_MS 100
 #define GOAL_MS_SLOW 20
 #define GOAL_MS_FAST 10
-uint32_t blackGoalStartTime = 0;
+volatile uint32_t blackGoalStartTime = 0;
 volatile uint32_t blackGoalTime = 0;
-uint32_t yellowGoalStartTime = 0;
+volatile uint32_t yellowGoalStartTime = 0;
 volatile uint32_t yellowGoalTime = 0;
 
 void blackGoalSensorFalling() {
@@ -158,18 +161,21 @@ void setup() {
     pinMode(LEDPIN, OUTPUT);
 
     // Set up theme-change button
-    digitalWrite(THEME_BUTTON_PIN, INPUT_PULLUP);
-    attachInterrupt(THEME_BUTTON_PIN, themeButtonFalling, FALLING);
+    //digitalWrite(THEME_BUTTON_PIN, INPUT_PULLUP);
+    pinMode(THEME_BUTTON_PIN, INPUT_PULLUP);
+    attachInterrupt(THEME_BUTTON_INTERRUPT_NUM, themeButtonFalling, FALLING);
 
     // Set the goal sensors pins
-    digitalWrite(GOAL_PIN_BLACK, INPUT_PULLUP);
-    digitalWrite(GOAL_PIN_YELLOW, INPUT_PULLUP);
+    //digitalWrite(GOAL_PIN_BLACK, INPUT_PULLUP);
+    pinMode(GOAL_PIN_BLACK, INPUT_PULLUP);
+    //digitalWrite(GOAL_PIN_YELLOW, INPUT_PULLUP);
+    pinMode(GOAL_PIN_YELLOW, INPUT_PULLUP);
 
     // Attach goal sensor interrupts
-    attachInterrupt(GOAL_PIN_BLACK, blackGoalSensorFalling, FALLING);
-    attachInterrupt(GOAL_PIN_BLACK, blackGoalSensorRising, RISING);
-    attachInterrupt(GOAL_PIN_YELLOW, yellowGoalSensorFalling, FALLING);
-    attachInterrupt(GOAL_PIN_YELLOW, yellowGoalSensorRising, RISING);
+    attachInterrupt(GOAL_INTERRUPT_NUM_BLACK, blackGoalSensorFalling, FALLING);
+    attachInterrupt(GOAL_INTERRUPT_NUM_BLACK, blackGoalSensorRising, RISING);
+    attachInterrupt(GOAL_INTERRUPT_NUM_YELLOW, yellowGoalSensorFalling, FALLING);
+    attachInterrupt(GOAL_INTERRUPT_NUM_YELLOW, yellowGoalSensorRising, RISING);
 }
 
 void loop(){
