@@ -79,6 +79,7 @@ uint16_t *slowGoalSoundIndices = NULL;
 uint8_t goalSoundCount;
 uint8_t fastGoalSoundCount;
 uint8_t slowGoalSoundCount;
+ifstream themeFileStream;
 
 // Setup theme button detection
 #define THEME_BUTTON_DEBOUNCE_MS 300
@@ -89,38 +90,38 @@ uint32_t themeButtonPressTime = 0;
 #define GOAL_DEBOUNCE_MS 100
 #define GOAL_MS_SLOW 20
 #define GOAL_MS_FAST 10
-volatile uint32_t blackGoalStartTime = 0;
+uint32_t blackGoalStartTime = 0;
 volatile uint32_t blackGoalTime = 0;
-volatile uint32_t yellowGoalStartTime = 0;
+uint32_t yellowGoalStartTime = 0;
 volatile uint32_t yellowGoalTime = 0;
 
-void blackGoalSensorFalling() {
+void blackGoalSensorChange() {
     uint32_t time = millis();
-    // Debounce falling input
-    if ((time - blackGoalStartTime) > GOAL_DEBOUNCE_MS) {
-        blackGoalStartTime = time;
+    uint8_t state = digitalRead(GOAL_PIN_BLACK);
+    if (state == LOW) {
+        if ((time - blackGoalStartTime) > GOAL_DEBOUNCE_MS) {
+            blackGoalStartTime = time;
+        }
+    } else {
+        if (blackGoalStartTime > 0) {
+            blackGoalTime = millis() - blackGoalStartTime;
+            blackGoalStartTime = 0;
+        }
     }
 }
 
-void blackGoalSensorRising() {
-    if (blackGoalStartTime > 0) {
-        blackGoalTime = millis() - blackGoalStartTime;
-        blackGoalStartTime = 0;
-    }
-}
-
-void yellowGoalSensorFalling() {
+void yellowGoalSensorChange() {
     uint32_t time = millis();
-    // Debounce falling input
-    if ((time - yellowGoalStartTime) > GOAL_DEBOUNCE_MS) {
-        yellowGoalStartTime = time;
-    }
-}
-
-void yellowGoalSensorRising() {
-    if (yellowGoalStartTime > 0) {
-        yellowGoalTime = millis() - yellowGoalStartTime;
-        yellowGoalStartTime = 0;
+    uint8_t state = digitalRead(GOAL_PIN_YELLOW);
+    if (state == LOW) {
+        if ((time - yellowGoalStartTime) > GOAL_DEBOUNCE_MS) {
+            yellowGoalStartTime = time;
+        }
+    } else {
+        if (yellowGoalStartTime > 0) {
+            yellowGoalTime = millis() - yellowGoalStartTime;
+            yellowGoalStartTime = 0;
+        }
     }
 }
 
@@ -161,21 +162,16 @@ void setup() {
     pinMode(LEDPIN, OUTPUT);
 
     // Set up theme-change button
-    //digitalWrite(THEME_BUTTON_PIN, INPUT_PULLUP);
     pinMode(THEME_BUTTON_PIN, INPUT_PULLUP);
     attachInterrupt(THEME_BUTTON_INTERRUPT_NUM, themeButtonFalling, FALLING);
 
     // Set the goal sensors pins
-    //digitalWrite(GOAL_PIN_BLACK, INPUT_PULLUP);
     pinMode(GOAL_PIN_BLACK, INPUT_PULLUP);
-    //digitalWrite(GOAL_PIN_YELLOW, INPUT_PULLUP);
     pinMode(GOAL_PIN_YELLOW, INPUT_PULLUP);
 
     // Attach goal sensor interrupts
-    attachInterrupt(GOAL_INTERRUPT_NUM_BLACK, blackGoalSensorFalling, FALLING);
-    attachInterrupt(GOAL_INTERRUPT_NUM_BLACK, blackGoalSensorRising, RISING);
-    attachInterrupt(GOAL_INTERRUPT_NUM_YELLOW, yellowGoalSensorFalling, FALLING);
-    attachInterrupt(GOAL_INTERRUPT_NUM_YELLOW, yellowGoalSensorRising, RISING);
+    attachInterrupt(GOAL_INTERRUPT_NUM_BLACK, blackGoalSensorChange, CHANGE);
+    attachInterrupt(GOAL_INTERRUPT_NUM_YELLOW, yellowGoalSensorChange, CHANGE);
 }
 
 void loop(){
@@ -184,21 +180,24 @@ void loop(){
         if (blackGoalTime) {
             Serial.print(F("Black Goal: ")); Serial.print(blackGoalTime); Serial.println(F(" ms"));
             getGoalSound(soundToPlay, blackGoalTime);
+            // TODO: reading theme file while sound is playing makes player barf, but queueing a new
+            // sound before playing takes too long. Fix this.
+            queueNewGoalSound(blackGoalTime);
             blackGoalStartTime = 0;
             blackGoalTime = 0;
             musicPlayer.setVolume(20,254);
             musicPlayer.stopPlaying();
             musicPlayer.startPlayingFile(soundToPlay);
-            queueNewGoalSound(blackGoalTime);
         }
         if (yellowGoalTime) {
             Serial.print(F("Yellow Goal: ")); Serial.print(yellowGoalTime); Serial.println(F(" ms"));
             getGoalSound(soundToPlay, yellowGoalTime);
+            queueNewGoalSound(yellowGoalTime);
+            yellowGoalStartTime = 0;
             yellowGoalTime = 0;
             musicPlayer.setVolume(254,20);
             musicPlayer.stopPlaying();
             musicPlayer.startPlayingFile(soundToPlay);
-            queueNewGoalSound(yellowGoalTime);
         }
     }
     if (themeButtonPressed) {
@@ -303,6 +302,7 @@ inline void readSettings() {
     settingsFileStream.close();
 }
 
+// TODO: Seems to play static when new theme rotation gets around to first theme
 void setTheme(char *themePathPassed) {
 
     // Read the theme.txt file
@@ -341,7 +341,7 @@ void setTheme(char *themePathPassed) {
 
     // Play the key sound for this theme if it exists
     if (SD.exists(themeKeySoundFilePath)) {
-        Serial.print(F("Playing: ")); Serial.println(themeKeySoundFilePath);
+        Serial.print(F("Playing key sound: ")); Serial.println(themeKeySoundFilePath);
         musicPlayer.stopPlaying();
         musicPlayer.startPlayingFile(themeKeySoundFilePath);
     }
@@ -355,14 +355,16 @@ void setTheme(char *themePathPassed) {
  * uint16_t themeFilePosition byte position in theme file where sound filename can be found
  */
 void getSoundFilePath(char *soundFilePath, char *dirName, uint16_t themeFilePosition) {
-    ifstream themeFileStream(themeFilePath);
     if (!themeFileStream.is_open()) {
-        Serial.print(F("Unable to open theme.txt in ")); Serial.println(dirName);
+        Serial.println(F("Theme file stream lost"));
     }
     themeFileStream.seekg(themeFilePosition);
     char fileName[NAMELEN];
+    if (musicPlayer.playingMusic) {
+        Serial.println(F("Stopping playback to read theme file"));
+        musicPlayer.stopPlaying();
+    }
     themeFileStream.get(fileName, NAMELEN);
-    themeFileStream.close();
     strncpy(soundFilePath, dirName, GOALFILEPATHLEN - 1);
     strncat(soundFilePath, fileName, GOALFILEPATHLEN - strlen(soundFilePath) - 1);
 }
@@ -370,7 +372,10 @@ void getSoundFilePath(char *soundFilePath, char *dirName, uint16_t themeFilePosi
 void readTheme(char *dirName) {
     strncpy(themeFilePath, dirName, THEMEFILEPATHLEN - 1);
     strncat_P(themeFilePath, THEMEFILENAME, THEMEFILEPATHLEN - 1);
-    ifstream themeFileStream(themeFilePath);
+    if (themeFileStream.is_open()) {
+        themeFileStream.close();
+    }
+    themeFileStream.open(themeFilePath);
     if (!themeFileStream.is_open()) {
         Serial.print(F("theme.txt not found in ")); Serial.println(dirName);
         return;
@@ -412,7 +417,6 @@ void readTheme(char *dirName) {
             (*currentlyCounting)++;
         }
     }
-    themeFileStream.close();
 }
 
 void getNextTheme(char *themePathPassed) {
@@ -424,29 +428,5 @@ void getNextTheme(char *themePathPassed) {
     settingsFileStream.get(themeDirName, NAMELEN);
     settingsFileStream.close();
     strncat(themePathPassed, themeDirName, THEMEPATHLEN - strlen(themePathPassed) - 1);
-/*
-    uint16_t dirIndex;
-    SdFile dir;
-    SdFile entry;
-    SdFile next;
-    dir.open(themePathPassed, O_READ);
-    entry.open(&dir, themeDirName, O_READ);
-    entry.close();
-    next.openNext(&dir, O_READ);
-    next.getName(themeDirName, NAMELEN);
     Serial.print(F("Next theme: ")); Serial.println(themeDirName);
-    next.close();
-    if (!next.openNext(&dir, O_READ)) {
-        dir.rewind();
-        next.openNext(&dir, O_READ);
-        next.getName(themeDirName, NAMELEN);
-        Serial.print(F("Rewound next theme: ")); Serial.println(themeDirName);
-    } else {
-        next.getName(themeDirName, NAMELEN);
-        Serial.print(F("Next next theme: ")); Serial.println(themeDirName);
-    }
-    strncat(themePathPassed, themeDirName, THEMEPATHLEN - strlen(themePathPassed) - 1);
-    next.close();
-    dir.close();
-*/
 }
