@@ -9,6 +9,8 @@
 // SD file system object
 SdFat SD;
 
+bool sdInUse = false;
+
 // These are the pins used for the music maker shield
 #define SHIELD_RESET  -1      // VS1053 reset pin (unused!)
 #define SHIELD_CS     7      // VS1053 chip select pin (output)
@@ -414,11 +416,13 @@ void getSoundFilePath(char *soundFilePath, char *dirName, uint16_t themeFilePosi
     }
     themeFileStream.seekg(themeFilePosition);
     char fileName[NAMELEN];
-    if (musicPlayer.playingMusic) {
-        Serial.println(F("Stopping playback to read theme file"));
-        musicPlayer.stopPlaying();
+    if (musicPlayer.playingMusic || sdInUse) {
+        Serial.println(F("Theme file read aborted because sound playing"));
+        return;
     }
+    sdInUse = true;
     themeFileStream.get(fileName, NAMELEN);
+    sdInUse = false;
     strncpy(soundFilePath, dirName, GOALFILEPATHLEN - 1);
     strncat(soundFilePath, fileName, GOALFILEPATHLEN - strlen(soundFilePath) - 1);
 }
@@ -434,6 +438,11 @@ void readTheme(char *dirName) {
         Serial.print(F("theme.txt not found in ")); Serial.println(dirName);
         return;
     }
+    if (sdInUse) {
+        Serial.println(F("Unable to read theme.txt at this time"));
+        return;
+    }
+    sdInUse = true;
     goalSoundCount = fastGoalSoundCount = slowGoalSoundCount = 0;
     char fileLine[FILELINELEN];
     uint16_t **currentlyReading;
@@ -471,6 +480,7 @@ void readTheme(char *dirName) {
             (*currentlyCounting)++;
         }
     }
+    sdInUse = false;
 }
 
 void getNextTheme(char *themePathPassed) {
@@ -479,7 +489,14 @@ void getNextTheme(char *themePathPassed) {
         currentThemeIndex = 0;
     }
     settingsFileStream.seekg(themeIndices[currentThemeIndex]);
+    if (sdInUse) {
+        Serial.println(F("Cannot read settings.txt to find next theme becase SD in use"));
+        strcpy(themePathPassed, "\0");
+        return;
+    }
+    sdInUse = true;
     settingsFileStream.get(themeDirName, NAMELEN);
+    sdInUse = false;
     settingsFileStream.close();
     strncat(themePathPassed, themeDirName, THEMEPATHLEN - strlen(themePathPassed) - 1);
 }
